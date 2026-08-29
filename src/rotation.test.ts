@@ -1,0 +1,2 @@
+import {describe,it,expect} from 'vitest'; import {getNextEligiblePayer,previewTurns} from './rotation'; import {rotation} from './data';
+describe('rotation',()=>{it('consumes Fidel pass after Manu and selects Marco',()=>{const r=getNextEligiblePayer('manu',rotation,{fidel:1,marco:0,noyi:0,manu:0});expect(r.nextPayer).toBe('marco');expect(r.updatedSkips.fidel).toBe(0)});it('previews without mutating skips',()=>{const skips={fidel:1,marco:0,noyi:0,manu:0};expect(previewTurns('manu',rotation,skips,4)).toEqual(['marco','noyi','manu','fidel']);expect(skips.fidel).toBe(1)})});

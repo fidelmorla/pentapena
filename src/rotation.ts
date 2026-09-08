@@ -8,6 +8,9 @@ export function getNextEligiblePayer(current:ParticipantId, rotation:Participant
  }
  return {nextPayer:current,updatedSkips:nextSkips};
 }
+export function getAbsenceSubstitute(absent:ParticipantId, rotation:ParticipantId[], skips:Record<ParticipantId,number>) {
+ return getNextEligiblePayer(absent, rotation, skips);
+}
 export function previewTurns(current:ParticipantId, rotation:ParticipantId[], skips:Record<ParticipantId,number>, count=4){
  const result:ParticipantId[]=[]; let payer=current; let simulated={...skips};
  while(result.length<count){const next=getNextEligiblePayer(payer,rotation,simulated);payer=next.nextPayer;simulated=next.updatedSkips;result.push(payer)}

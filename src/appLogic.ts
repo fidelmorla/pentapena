@@ -100,5 +100,5 @@ export function undoLast(state: AppState): AppState | null {
 }
 
 export function resetState(state: AppState): AppState {
-  return { ...initialState(), undo: snapshot(state) };
+  return { ...initialState(), revision: state.revision, updatedAt: state.updatedAt, undo: snapshot(state) };
 }

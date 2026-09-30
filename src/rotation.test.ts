@@ -5,15 +5,15 @@ import { applyAbsenceSkip, recordPayment } from './appLogic';
 import type { AppState } from './types';
 
 describe('rotation engine', () => {
-  it('consumes Fidel pass after Manu and selects Marco', () => {
+  it('advances from Manu to Noyi without consuming a later Fidel pass', () => {
     const r = getNextEligiblePayer('manu', rotation, { fidel: 1, marco: 0, noyi: 0, manu: 0 });
-    expect(r.nextPayer).toBe('marco');
-    expect(r.updatedSkips.fidel).toBe(0);
+    expect(r.nextPayer).toBe('noyi');
+    expect(r.updatedSkips.fidel).toBe(1);
   });
 
-  it('wraps around the base rotation correctly', () => {
+  it('wraps around the canonical rotation correctly', () => {
     const r = getNextEligiblePayer('manu', rotation, { fidel: 0, marco: 0, noyi: 0, manu: 0 });
-    expect(r.nextPayer).toBe('fidel');
+    expect(r.nextPayer).toBe('noyi');
   });
 
   it('never mutates the original skips object', () => {
@@ -29,34 +29,34 @@ describe('rotation engine', () => {
 
   it('handles multiple passes: 2 -> 1 -> 0 -> eligible', () => {
     let skips = { fidel: 2, marco: 0, noyi: 0, manu: 0 };
-    let r = getNextEligiblePayer('manu', rotation, skips); // reaches fidel, consumes 2->1
+    let r = getNextEligiblePayer('noyi', rotation, skips);
     expect(r.nextPayer).toBe('marco');
     expect(r.updatedSkips.fidel).toBe(1);
     skips = r.updatedSkips;
-    r = getNextEligiblePayer('manu', rotation, skips); // next cycle reaches fidel again, 1->0
+    r = getNextEligiblePayer('noyi', rotation, skips);
     expect(r.nextPayer).toBe('marco');
     expect(r.updatedSkips.fidel).toBe(0);
     skips = r.updatedSkips;
-    r = getNextEligiblePayer('manu', rotation, skips); // fidel now eligible
+    r = getNextEligiblePayer('noyi', rotation, skips);
     expect(r.nextPayer).toBe('fidel');
   });
 
-  it('previews the upcoming turns without mutating real skips (preview purity)', () => {
+  it('previews upcoming turns without mutating real skips', () => {
     const skips = { fidel: 1, marco: 0, noyi: 0, manu: 0 };
-    expect(previewTurns('manu', rotation, skips, 4)).toEqual(['marco', 'noyi', 'manu', 'fidel']);
+    expect(previewTurns('manu', rotation, skips, 4)).toEqual(['noyi', 'marco', 'manu', 'noyi']);
     expect(skips.fidel).toBe(1);
     previewTurns('manu', rotation, skips, 8);
     expect(skips).toEqual({ fidel: 1, marco: 0, noyi: 0, manu: 0 });
   });
 
-  it('getAbsenceSubstitute finds the next eligible person, consuming passes encountered', () => {
+  it('finds the next absence substitute in canonical order', () => {
     const r = getAbsenceSubstitute('manu', rotation, { fidel: 1, marco: 0, noyi: 0, manu: 0 });
-    expect(r.nextPayer).toBe('marco');
-    expect(r.updatedSkips.fidel).toBe(0);
+    expect(r.nextPayer).toBe('noyi');
+    expect(r.updatedSkips.fidel).toBe(1);
   });
 });
 
-describe('initial state (TEST 1)', () => {
+describe('initial state', () => {
   it('starts with Manu next, Fidel holding one pass, and seeded history', () => {
     const s = initialState();
     expect(s.currentPayer).toBe('manu');
@@ -67,7 +67,7 @@ describe('initial state (TEST 1)', () => {
 });
 
 describe('effective sequence from initial state', () => {
-  it('matches Manu -> Marco -> Noyi -> Manu -> Fidel -> Marco -> Noyi -> Manu -> Fidel', () => {
+  it('follows the canonical Noyi -> Fidel -> Marco -> Manu cycle', () => {
     let state = initialState();
     const sequence: string[] = [state.currentPayer];
     for (let i = 0; i < 8; i++) {
@@ -75,41 +75,35 @@ describe('effective sequence from initial state', () => {
       state = result.state;
       sequence.push(state.currentPayer);
     }
-    expect(sequence).toEqual(['manu', 'marco', 'noyi', 'manu', 'fidel', 'marco', 'noyi', 'manu', 'fidel']);
+    expect(sequence).toEqual(['manu', 'noyi', 'marco', 'manu', 'noyi', 'fidel', 'marco', 'manu', 'noyi']);
   });
 });
 
-describe('TEST 2 — Manu pays', () => {
-  it('records Manu once, consumes Fidel pass without recording him, and advances to Marco', () => {
+describe('Manu pays', () => {
+  it('records Manu once and advances to Noyi', () => {
     const state = initialState();
     const result = recordPayment(state, '2026-01-01');
     const payments = result.state.history.filter((e) => e.type === 'payment');
     expect(payments.filter((e) => e.type === 'payment' && e.payer === 'manu')).toHaveLength(1);
     expect(payments.some((e) => e.type === 'payment' && e.payer === 'fidel' && e.date === '2026-01-01')).toBe(false);
-    expect(result.state.skips.fidel).toBe(0);
-    expect(result.state.currentPayer).toBe('marco');
+    expect(result.state.skips.fidel).toBe(1);
+    expect(result.state.currentPayer).toBe('noyi');
   });
 });
 
-describe('TEST 4 — absence skip', () => {
+describe('absence skip', () => {
   it('defers the absent payer and restores them immediately after the substitute pays', () => {
     let state: AppState = { ...initialState(), currentPayer: 'manu', skips: { fidel: 0, marco: 0, noyi: 0, manu: 0 } };
     const skip = applyAbsenceSkip(state, '2026-01-08');
     expect(skip).not.toBeNull();
     state = skip!.state;
     expect(state.deferredPayer).toBe('manu');
-    expect(state.currentPayer).toBe('fidel'); // next eligible after manu covers this Peña
-
-    // a second absence skip must be prevented while one is pending
+    expect(state.currentPayer).toBe('noyi');
     expect(applyAbsenceSkip(state, '2026-01-08')).toBeNull();
-
-    // substitute (fidel) pays -> Manu returns as next payer immediately
     const afterSubstitutePays = recordPayment(state, '2026-01-08');
     expect(afterSubstitutePays.state.currentPayer).toBe('manu');
     expect(afterSubstitutePays.state.deferredPayer).toBeNull();
-
-    // Manu later pays -> normal rotation resumes from Manu
     const afterManuPays = recordPayment(afterSubstitutePays.state, '2026-01-15');
-    expect(afterManuPays.state.currentPayer).toBe('fidel');
+    expect(afterManuPays.state.currentPayer).toBe('noyi');
   });
 });

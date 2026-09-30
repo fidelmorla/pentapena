@@ -28,7 +28,7 @@ class LocalStorageAdapter implements StorageAdapter {
     try {
       localStorage.setItem(LOCAL_KEY, JSON.stringify(stamped));
     } catch {
-      // private browsing mode: state simply won't persist across reloads
+      // Private browsing mode: state simply will not persist across reloads.
     }
     return { ok: true, state: stamped };
   }
@@ -69,13 +69,39 @@ class SupabaseStorageAdapter implements StorageAdapter {
       .select('id,revision,data,updated_at');
     if (error) throw error;
     if (data && data.length) return { ok: true, state: fromRow(data[0] as Row) };
-    // revision mismatch: someone else saved first. Surface the authoritative state instead.
     return { ok: false, latest: await this.load() };
+  }
+}
+
+const withTimeout = <T,>(promise: Promise<T>, milliseconds = 6000): Promise<T> =>
+  Promise.race([
+    promise,
+    new Promise<T>((_, reject) => window.setTimeout(() => reject(new Error('Shared storage timeout')), milliseconds)),
+  ]);
+
+class ResilientStorageAdapter implements StorageAdapter {
+  constructor(private primary: StorageAdapter, private fallback: StorageAdapter) {}
+  async load(): Promise<AppState> {
+    try {
+      return await withTimeout(this.primary.load());
+    } catch {
+      return this.fallback.load();
+    }
+  }
+  async save(next: AppState): Promise<SaveResult> {
+    try {
+      return await withTimeout(this.primary.save(next));
+    } catch {
+      return this.fallback.save(next);
+    }
   }
 }
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const localStorageAdapter = new LocalStorageAdapter();
 
 export const storage: StorageAdapter =
-  SUPABASE_URL && SUPABASE_ANON_KEY ? new SupabaseStorageAdapter(SUPABASE_URL, SUPABASE_ANON_KEY) : new LocalStorageAdapter();
+  SUPABASE_URL && SUPABASE_ANON_KEY
+    ? new ResilientStorageAdapter(new SupabaseStorageAdapter(SUPABASE_URL, SUPABASE_ANON_KEY), localStorageAdapter)
+    : localStorageAdapter;
